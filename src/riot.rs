@@ -6,6 +6,29 @@ enum PA7EdgeDetect {
     Negative
 }
 
+#[derive(Clone, Copy)]
+pub enum Player {
+    Zero,
+    One
+}
+pub enum JoystickDirection {
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+impl JoystickDirection {
+    fn porta_bit(self) -> i32 {
+        match self {
+            JoystickDirection::Up => 0,
+            JoystickDirection::Down => 1,
+            JoystickDirection::Left => 2,
+            JoystickDirection::Right => 3,
+        }
+    }
+}
+
 pub struct Riot {
     ram: [u8; 128],
     timer_cnt: u16,
@@ -26,7 +49,7 @@ impl Riot {
             timer_interval: 1024,
             timer_irq_enable: false,
             interrupt_flag: 0,
-            porta: !((1 << 3) | (1 << 7)),
+            porta: 0xFF,
             portb: 0
         }
     }
@@ -53,6 +76,18 @@ impl Riot {
         } else {
             self.portb &= !(1 << 0);
         }
+    }
+
+    pub fn switch_joystick(&mut self, player: Player, dir: JoystickDirection, value: bool) {
+        let offset = if let Player::One = player { 0 } else { 4 };
+
+        if value {
+            self.porta &= !(1 << (dir.porta_bit() + offset));
+        } else {
+            self.porta |= 1 << (dir.porta_bit() + offset);
+        }
+
+        println!("porta: 0b{:08b}", self.porta);
     }
 
     pub fn irq(&self) -> bool {

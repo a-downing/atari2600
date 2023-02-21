@@ -1,5 +1,5 @@
-use atari2600::{atari2600::{Atari2600}, tia};
-use sdl2::{event::Event, pixels::Color, rect::Point};
+use atari2600::{atari2600::{Atari2600}, tia, riot::{Player, JoystickDirection}};
+use sdl2::{event::Event, pixels::Color, rect::Point, keyboard::Keycode};
 
 fn main() {
     let args = std::env::args().collect::<Vec<String>>();
@@ -30,11 +30,32 @@ fn main() {
     canvas.present();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
+    let player = Player::Zero;
 
     'main_loop: loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} => break 'main_loop,
+                Event::KeyDown { timestamp, window_id, keycode, scancode, keymod, repeat } => match keycode {
+                    Some(keycode) => match keycode {
+                        Keycode::Right => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Right, true),
+                        Keycode::Left => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Left, true),
+                        Keycode::Down => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Down, true),
+                        Keycode::Up => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Up, true),
+                        _ => ()
+                    },
+                    None => (),
+                }
+                Event::KeyUp { timestamp, window_id, keycode, scancode, keymod, repeat } => match keycode {
+                    Some(keycode) => match keycode {
+                        Keycode::Right => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Right, false),
+                        Keycode::Left => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Left, false),
+                        Keycode::Down => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Down, false),
+                        Keycode::Up => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Up, false),
+                        _ => ()
+                    },
+                    None => (),
+                }
                 _ => ()
             }
         }
