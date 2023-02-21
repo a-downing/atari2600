@@ -66,7 +66,7 @@ fn main() {
                             let pixel = atari.tia.frame[index as usize];
 
                             if pixel != 0 {
-                                canvas.set_draw_color(atari2600::palette(pixel));
+                                canvas.set_draw_color(atari2600::palette_rgb(pixel));
                                 canvas.draw_point(Point::new(x as i32, y as i32)).unwrap();
                             }
                         }
