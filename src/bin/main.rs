@@ -42,6 +42,7 @@ fn main() {
                         Keycode::Left => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Left, true),
                         Keycode::Down => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Down, true),
                         Keycode::Up => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Up, true),
+                        Keycode::Space => cpu.get_bus().tia.input4(0x00),
                         _ => ()
                     },
                     None => (),
@@ -52,6 +53,7 @@ fn main() {
                         Keycode::Left => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Left, false),
                         Keycode::Down => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Down, false),
                         Keycode::Up => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Up, false),
+                        Keycode::Space => cpu.get_bus().tia.input4(0x80),
                         _ => ()
                     },
                     None => (),

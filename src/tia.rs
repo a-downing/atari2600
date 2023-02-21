@@ -30,6 +30,8 @@ pub struct Tia {
     colup0: u8,
     nusiz1: u8,
     nusiz0: u8,
+    inpt5: u8,
+    inpt4: u8
 }
 
 impl Tia {
@@ -63,6 +65,8 @@ impl Tia {
             colup0: 0,
             nusiz1: 0,
             nusiz0: 0,
+            inpt5: 0,
+            inpt4: 0
         }
     }
 
@@ -72,6 +76,14 @@ impl Tia {
 
     pub fn draw(&self) -> bool {
         self.draw
+    }
+
+    pub fn input4(&mut self, value: u8) {
+        self.inpt4 = value;
+    }
+
+    pub fn input5(&mut self, value: u8) {
+        self.inpt5 = value;
     }
 
     pub fn drew(&mut self) {
@@ -206,8 +218,8 @@ impl Tia {
 
     pub fn read(&self, addr: u16) -> u8 {
         match addr & 0x108f {
-            0x000D => 0, //INPT5 (input port 5, trigger 1)
-            0x000C => 0, //INPT4 (input port 4, trigger 0)
+            0x000D => self.inpt5, //INPT5 (input port 5, trigger 1)
+            0x000C => self.inpt4, //INPT4 (input port 4, trigger 0)
             0x000B => 0, //INPT3 (input port 3, pot 3)
             0x000A => 0, //INPT2 (input port 2, pot 2)
             0x0009 => 0, //INPT1 (input port 1, pot 1)
