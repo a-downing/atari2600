@@ -17,7 +17,7 @@ fn main() {
     let video_subsystem = sdl_context.video().unwrap();
     const SCALE: u16 = 3;
 
-    let window = video_subsystem.window("rust-sdl2 demo", (tia::CLOCKS_PER_SCANLINE * SCALE) as u32, (tia::NUM_SCANLINES * SCALE) as u32)
+    let window = video_subsystem.window("atari2600", (tia::CLOCKS_PER_SCANLINE * SCALE) as u32, (tia::NUM_SCANLINES * SCALE) as u32)
         .position_centered()
         .build()
         .expect("could not initialize video subsystem");
