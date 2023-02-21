@@ -1,4 +1,4 @@
-use sandbox::{ AddressBus, MOS6502 };
+use atari2600::{ AddressBus, MOS6502 };
 
 struct SystemBus {
     ram: Vec<u8>

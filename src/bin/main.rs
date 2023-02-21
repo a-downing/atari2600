@@ -1,4 +1,4 @@
-use sandbox::{atari2600::{Atari2600}, tia};
+use atari2600::{atari2600::{Atari2600}, tia};
 use sdl2::{event::Event, pixels::Color, rect::Point};
 
 fn main() {
@@ -7,7 +7,7 @@ fn main() {
 
     let atari = Atari2600::new(rom);
 
-    let mut cpu = sandbox::MOS6502::new(atari);
+    let mut cpu = atari2600::MOS6502::new(atari);
     cpu.reset();
     cpu.get_bus().riot.switch_color(true);
     cpu.get_bus().riot.switch_select(true);
@@ -66,7 +66,7 @@ fn main() {
                             let pixel = atari.tia.frame[index as usize];
 
                             if pixel != 0 {
-                                canvas.set_draw_color(sandbox::palette(pixel));
+                                canvas.set_draw_color(atari2600::palette(pixel));
                                 canvas.draw_point(Point::new(x as i32, y as i32)).unwrap();
                             }
                         }
