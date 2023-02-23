@@ -3,7 +3,8 @@ use crate::{riot, tia, AddressBus};
 pub struct Atari2600 {
     pub rom: Vec<u8>,
     pub riot: riot::Riot,
-    pub tia: tia::Tia
+    pub tia: tia::Tia,
+    bank_offset: usize
 }
 
 #[derive(Debug)]
@@ -24,7 +25,12 @@ mod addresses {
 
 impl Atari2600 {
     pub fn new(rom: Vec<u8>) -> Self {
-        Atari2600 { rom, riot: riot::Riot::new(), tia: tia::Tia::new() }
+        Atari2600 {
+            rom,
+            riot: riot::Riot::new(),
+            tia: tia::Tia::new(),
+            bank_offset: 0
+        }
     }
 
     fn decode(addr: u16) -> Atari2600Chip {
@@ -45,7 +51,17 @@ impl AddressBus for Atari2600 {
         let chip = Atari2600::decode(addr);
 
         match chip {
-            Atari2600Chip::Cartridge => self.rom[addr as usize & 0xFFF],
+            Atari2600Chip::Cartridge => match addr & 0x1FFF {
+                0x1FF8 =>{
+                    self.bank_offset = 0;
+                    0
+                }
+                0x1FF9 => {
+                    self.bank_offset = 4096;
+                    0
+                }
+                _ => self.rom[addr as usize & 0xFFF + self.bank_offset]
+            }
             Atari2600Chip::RIOT => self.riot.read(addr),
             Atari2600Chip::TIA => self.tia.read(addr)
         }

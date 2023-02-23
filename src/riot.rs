@@ -86,8 +86,6 @@ impl Riot {
         } else {
             self.porta |= 1 << (dir.porta_bit() + offset);
         }
-
-        println!("porta: 0b{:08b}", self.porta);
     }
 
     pub fn irq(&self) -> bool {
@@ -163,10 +161,10 @@ impl Riot {
             0 => self.write_ram(addr, value),
             _ => match addr & (1 << 2) {
                 0 => match addr & 0x1287 {
-                    0x0283 => todo!(), //data-direction control for I/O register B
-                    0x0282 => todo!(), //I/O register B
-                    0x0281 => todo!(), //data-direction control for I/O register A
-                    0x0280 => todo!(), //I/O register A
+                    0x0283 => (), //data-direction control for I/O register B
+                    0x0282 => (), //I/O register B
+                    0x0281 => (), //data-direction control for I/O register A
+                    0x0280 => (), //I/O register A
                     _ => panic!("Unknown RIOT write register: 0x{:04X}", addr)
                 }
                 _ => match addr & (1 << 4) {
