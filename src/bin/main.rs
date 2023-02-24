@@ -1,7 +1,7 @@
-use std::{thread, time::Duration};
+use std::{thread, time::{Duration, Instant}, io::Write};
 
-use atari2600::{atari2600::{Atari2600}, tia, riot::{Player, JoystickDirection}};
-use sdl2::{event::Event, pixels::Color, rect::Point, keyboard::Keycode, audio::AudioSpecDesired};
+use atari2600::{atari2600::{Atari2600}, tia, riot::{Player, JoystickDirection}, AudioConverter};
+use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, keyboard::Keycode, audio::AudioSpecDesired, render::TextureAccess};
 
 fn main() {
     let args = std::env::args().collect::<Vec<String>>();
@@ -20,7 +20,7 @@ fn main() {
     let audio_subsystem = sdl_context.audio().unwrap();
     const SCALE: u16 = 3;
 
-    let spec = AudioSpecDesired{ freq: Some(44100), channels: Some(1), samples: Some(1024) };
+    let spec = AudioSpecDesired{ freq: Some(44100), channels: Some(2), samples: Some(256) };
     let audio_device = audio_subsystem.open_queue::<u8, _>(None, &spec).unwrap();
     audio_device.resume();
 
@@ -29,26 +29,30 @@ fn main() {
         .build()
         .expect("could not initialize video subsystem");
     
-    let mut canvas = window.into_canvas().build().expect("could not make a canvas");
+    let mut canvas = window.into_canvas().accelerated().build().expect("could not make a canvas");
     canvas.set_scale(SCALE as f32, SCALE as f32).unwrap();
 
     canvas.set_draw_color(Color::BLACK);
     canvas.clear();
     canvas.present();
 
+    let texture_creator = canvas.texture_creator();
+    let mut texture = texture_creator.create_texture(PixelFormatEnum::RGB24, TextureAccess::Streaming, tia::CLOCKS_PER_SCANLINE as u32, tia::NUM_SCANLINES as u32).unwrap();
+    let mut pixels = [0u8; tia::NUM_SCANLINES as usize * tia::CLOCKS_PER_SCANLINE as usize * 3];
+
     let mut event_pump = sdl_context.event_pump().unwrap();
     let player = Player::Zero;
 
-    let mut samples = Vec::<u8>::new();
-    const CLOCKS_PER_SAMPLE: u16 = 85; // 3.75Mhz / 44100Hz
-    let mut clocks_consumed = 0;
-    let mut sample = 0.0;
+    let mut audio_converter = AudioConverter::new(85);
+    let mut frame_num = 0;
+    let start_time = Instant::now();
+    
 
     'main_loop: loop {
         for event in event_pump.poll_iter() {
             match event {
                 Event::Quit {..} => break 'main_loop,
-                Event::KeyDown { timestamp, window_id, keycode, scancode, keymod, repeat } => match keycode {
+                Event::KeyDown { timestamp: _, window_id: _, keycode, scancode: _, keymod: _, repeat: _ } => match keycode {
                     Some(keycode) => match keycode {
                         Keycode::Right => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Right, true),
                         Keycode::Left => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Left, true),
@@ -59,7 +63,7 @@ fn main() {
                     },
                     None => (),
                 }
-                Event::KeyUp { timestamp, window_id, keycode, scancode, keymod, repeat } => match keycode {
+                Event::KeyUp { timestamp: _, window_id: _, keycode, scancode: _, keymod: _, repeat: _ } => match keycode {
                     Some(keycode) => match keycode {
                         Keycode::Right => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Right, false),
                         Keycode::Left => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Left, false),
@@ -91,60 +95,43 @@ fn main() {
 
                 if atari.tia.draw() {
                     atari.tia.drew();
-                    canvas.set_draw_color(Color::BLACK);
-                    canvas.clear();
-                    canvas.set_draw_color(Color::WHITE);
 
-                    for x in 0..tia::CLOCKS_PER_SCANLINE {
-                        for y in 0..tia::NUM_SCANLINES {
-                            let index = y * tia::CLOCKS_PER_SCANLINE + x;
-                            let pixel = atari.tia.frame[index as usize];
+                    let t = Instant::now() - start_time;
+                    
+                    if frame_num % 10 == 0 {
+                        println!("fps: {}", frame_num as f32 / t.as_secs_f32());
+                    }
 
-                            if pixel != 0 {
-                                canvas.set_draw_color(atari2600::palette_rgb(pixel));
-                                canvas.draw_point(Point::new(x as i32, y as i32)).unwrap();
-                            }
+                    for x in 0..tia::CLOCKS_PER_SCANLINE as usize {
+                        for y in 0..tia::NUM_SCANLINES as usize {
+                            let index = y * tia::CLOCKS_PER_SCANLINE as usize + x;
+                            let rgb = atari2600::palette_rgb(atari.tia.frame[index]);
+
+                            pixels[index * 3 + 0] = rgb.0;
+                            pixels[index * 3 + 1] = rgb.1;
+                            pixels[index * 3 + 2] = rgb.2;
+
                         }
                     }
 
+                    texture.update(None, &pixels, 3 * tia::CLOCKS_PER_SCANLINE as usize).unwrap();
+                    canvas.copy(&texture, None, None).unwrap();
                     canvas.present();
 
-                    loop {
-                        if atari.tia.audio[1].len() < 2 {
-                            break;
-                        }
-
-                        let mut s0 = atari.tia.audio[1][0];
-                        let s1 = atari.tia.audio[1][1];
-
-                        while clocks_consumed < CLOCKS_PER_SAMPLE {
-                            let clocks = s1.cycles.wrapping_sub(s0.cycles);
-
-                            //println!("clocks: {}", clocks);
-                            let clocks_needed = CLOCKS_PER_SAMPLE - clocks_consumed;
-                            
-                            if clocks >= clocks_needed {
-                                s0.cycles = s0.cycles.wrapping_add(clocks_needed);
-                                atari.tia.audio[1][0] = s0;
-                                clocks_consumed = 0;
-                                sample += s0.value as f32 * clocks_needed as f32;
-                                samples.push((sample / CLOCKS_PER_SAMPLE as f32) as u8);
-                                sample = 0.0;
-                            } else {
-                                clocks_consumed += clocks;
-                                sample += s0.value as f32 * clocks as f32;
-                                atari.tia.audio[1].pop_front();
-                                break;
-                            }
-                        }
+                    if audio_device.size() == 0 {
+                        println!("audio buffer underrun");
                     }
 
-                    audio_device.queue_audio(&samples).unwrap();
-                    samples.clear();
+                    let samples = audio_converter.convert(&mut atari.tia.audio);
+                    audio_device.queue_audio(samples).unwrap();
 
-                    while audio_device.size() > 1024 {
+                    while audio_device.size() > 2048 {
                         thread::sleep(Duration::from_micros(1));
                     }
+
+                    //std::io::stdout().write_all(samples.as_ref()).unwrap();
+
+                    frame_num += 1;
                 }
             }
 

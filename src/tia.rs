@@ -4,21 +4,20 @@ pub const NUM_SCANLINES: u16 = 262;
 pub const CLOCKS_PER_SCANLINE: u16 = 228;
 
 #[derive(Clone, Copy, Debug)]
-pub struct AudioSample {
+pub struct TiaAudioSample {
     pub value: u8,
     pub cycles: u16
 }
 
 pub struct Tia {
     pub frame: [u8; (CLOCKS_PER_SCANLINE * NUM_SCANLINES) as usize],
-    pub audio: [VecDeque<AudioSample>; 2],
+    pub audio: [VecDeque<TiaAudioSample>; 2],
     draw: bool,
     scanline: u16,
     ctr: u16,
     color_clock: u16,
     audio_div_ctr: [u8; 2],
     audio_div3_ctr: u8,
-    audio_out: [bool; 2],
     lfsr4: [u8; 2],
     lfsr5: [u8; 2],
     lfsr9: [u16; 2],
@@ -64,7 +63,6 @@ impl Tia {
             color_clock: 0,
             audio_div_ctr: [0; 2],
             audio_div3_ctr: 0,
-            audio_out: [false; 2],
             lfsr4: [0xFF; 2],
             lfsr5: [0xFF; 2],
             lfsr9: [0xFFFF; 2],
@@ -206,39 +204,55 @@ impl Tia {
     pub fn audio_cycle(&mut self, chan: usize) -> u8 {
         // The actual LFSR is lfsr[5:1], lfsr[0] is the previous output
         let lfsr5_prev_out = self.lfsr5[chan] & 1 == 1;
-        self.lfsr5[chan] = (((self.lfsr5[chan] >> 1) | ((self.lfsr5[chan] >> 3) ^ (self.lfsr5[chan] >> 1) & 1) << 5)) & 0b111111;
+        self.lfsr5[chan] = (((self.lfsr5[chan] >> 1) | ((self.lfsr5[chan] >> 2) ^ (self.lfsr5[chan] >> 0) & 1) << 5)) & 0b111111;
         let lfsr5_out = self.lfsr5[chan] & 1 == 1;
         
         // no need for previous output
         let lfsr9_out = self.lfsr9[chan] & 1 == 1;
         self.lfsr9[chan] = (((self.lfsr9[chan] >> 1) | ((self.lfsr9[chan] >> 4) ^ (self.lfsr9[chan] >> 0) & 1) << 8)) & 0b111111111;
 
-        let modified_clock = match self.audc[chan] & 0b11 {
-            0b00 => true,
-            0b01 => true,
-            0b10 => self.lfsr5[chan] >> 1 == 1, // happens every 31 cycles
-            0b11 => lfsr5_out && !lfsr5_prev_out, // rising edge
-            _ => unreachable!()
+        let modified_clock = match self.audc[chan] {
+            0x2 => self.lfsr5[chan] >> 1 == 1 || self.lfsr5[chan] >> 1 == 15, // happens every ~15 cycles
+            0x3 | 0x7 | 0xF => lfsr5_out && !lfsr5_prev_out, // rising edge
+            0x6 | 0xA | 0xE => self.lfsr5[chan] >> 1 == 1, // happens every 31 cycles
+            _ => true
         };
 
         let lfsr4_out = self.lfsr4[chan] & 1 == 1;
 
         if modified_clock {
-            self.lfsr4[chan] = (((self.lfsr4[chan] >> 1) | ((self.lfsr4[chan] >> 1) ^ (self.lfsr4[chan] >> 0) & 1) << 3)) & 0b1111;
-            self.audio_out[chan] = !self.audio_out[chan];
+            match self.audc[chan] {
+                0x4 | 0x5 | 0x7 | 0xC | 0xD | 0xF => self.lfsr4[chan] = (((self.lfsr4[chan] >> 1) | ((self.lfsr4[chan] >> 3) ^ 1 & 1) << 3)) & 0b1111,
+                _ => self.lfsr4[chan] = (((self.lfsr4[chan] >> 1) | ((self.lfsr4[chan] >> 1) ^ (self.lfsr4[chan] >> 0) & 1) << 3)) & 0b1111
+            }
         }
 
-        if self.audc[chan] & 0b1111 == 0 {
-            return 128;
-        } else if self.audc[chan] & 0b1111 == 8 {
-            return self.audio_sample(chan, lfsr9_out);
-        }
-
-        match (self.audc[chan] >> 2) & 0b11 {
-            0b00 => self.audio_sample(chan, lfsr4_out), //if lfsr4_out { 128 + (audv << 3) } else { 128 - (audv << 3) },
-            0b01 => self.audio_sample(chan, self.audio_out[chan]), //if self.audio_out[chan] { 128 + (audv << 3) } else { 128 - (audv << 3) },
-            0b10 => self.audio_sample(chan, lfsr5_out), //if lfsr5_out { 128 + (audv << 3) } else { 128 - (audv << 3) },
-            0b11 => self.audio_sample(chan, self.audio_out[chan]), //if self.audio_out[chan] { 128 + (audv << 3) } else { 128 - (audv << 3) },
+        match self.audc[chan] {
+            0x0 => {
+                self.lfsr4[chan] = 0b1111;
+                self.lfsr5[chan] = 0b11111;
+                self.lfsr9[chan] = 0b111111111;
+                128
+            },
+            0x1 => self.audio_sample(chan, lfsr4_out),
+            0x2 => self.audio_sample(chan, lfsr4_out), // /15 4-bit wtf?
+            0x3 => self.audio_sample(chan, lfsr4_out),
+            0x4 => self.audio_sample(chan, lfsr4_out),
+            0x5 => self.audio_sample(chan, lfsr4_out),
+            0x6 => self.audio_sample(chan, lfsr5_out),
+            0x7 => self.audio_sample(chan, lfsr4_out),
+            0x8 => self.audio_sample(chan, lfsr9_out),
+            0x9 => self.audio_sample(chan, lfsr5_out),
+            0xA => self.audio_sample(chan, lfsr5_out),
+            0xB => {
+                self.lfsr4[chan] = 0b1111;
+                self.lfsr9[chan] = 0b000001111;
+                128
+            }
+            0xC => self.audio_sample(chan, lfsr4_out),
+            0xD => self.audio_sample(chan, lfsr4_out),
+            0xE => self.audio_sample(chan, lfsr5_out),
+            0xF => self.audio_sample(chan, lfsr4_out),
             _ => unreachable!()
         }
     }
@@ -251,18 +265,18 @@ impl Tia {
         for chan in 0..=1 {
             if self.audc[chan] & 0b1100 == 0b1100 {
                 if self.audio_div3_ctr == 0 {
-                    if self.audio_div_ctr[chan] == self.audf[chan] & 0b11111 {
+                    if self.audio_div_ctr[chan] >= self.audf[chan] {
                         let value = self.audio_cycle(chan);
-                        self.audio[chan].push_back(AudioSample { value, cycles: self.ctr });
+                        self.audio[chan].push_back(TiaAudioSample { value, cycles: self.ctr });
                         self.audio_div_ctr[chan] = 0xFF;
                     }
 
                     self.audio_div_ctr[chan] = self.audio_div_ctr[chan].wrapping_add(1);
                 }
             } else {
-                if self.audio_div_ctr[chan] == self.audf[chan] & 0b11111 {
+                if self.audio_div_ctr[chan] >= self.audf[chan] {
                     let value = self.audio_cycle(chan);
-                    self.audio[chan].push_back(AudioSample { value, cycles: self.ctr });
+                    self.audio[chan].push_back(TiaAudioSample { value, cycles: self.ctr });
                     self.audio_div_ctr[chan] = 0xFF;
                 }
 
@@ -391,8 +405,14 @@ impl Tia {
                 }
             0x001A => self.audv[1] = value & 0xF, //AUDV1 (audio volume 1)
             0x0019 => self.audv[0] = value & 0xF, //AUDV0 (audio volume 0)
-            0x0018 => self.audf[1] = value & 0x1F, //AUDF1 (audio frequency 1)
-            0x0017 => self.audf[0] = value & 0x1F, //AUDF0 (audio frequency 0)
+            0x0018 => { //AUDF1 (audio frequency 1)
+                self.audf[1] = value & 0x1F;
+                //self.audio_div_ctr[1] = 0;
+            }
+            0x0017 => { //AUDF0 (audio frequency 0)
+                self.audf[0] = value & 0x1F;
+                //self.audio_div_ctr[0] = 0;
+            }
             0x0016 => self.audc[1] = value & 0xF, //AUDC1 (audio control 1)
             0x0015 => self.audc[0] = value & 0xF, //AUDC0 (audio control 0)
             0x0014 => (), //RESBL (reset ball)
