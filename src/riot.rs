@@ -107,7 +107,7 @@ impl Riot {
             self.timer_cnt = 0;
         }
 
-        self.timer_cnt += 1;
+        self.timer_cnt = self.timer_cnt.wrapping_add(1);
     }
 
     fn read_ram(&self, addr: u16) -> u8 {

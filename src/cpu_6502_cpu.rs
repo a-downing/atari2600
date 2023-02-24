@@ -884,7 +884,7 @@ impl<T: AddressBus> MOS6502<T> {
         let tmp = (a as u16).wrapping_sub(b as u16).wrapping_sub(!carry as u16);
 
         let mut lo = (a & 0x0F).wrapping_sub(b & 0x0F).wrapping_sub(!carry as u8);
-        let mut hi = (a & 0xF0) as u16 - (b & 0xF0) as u16;
+        let mut hi = ((a & 0xF0) as u16).wrapping_sub((b & 0xF0) as u16);
 
         self.sr &= !(sr_flags::CARRY | sr_flags::OVERFLOW);
 

@@ -110,12 +110,12 @@ fn main() {
                     canvas.present();
 
                     loop {
-                        if atari.tia.audio_ch1.len() < 2 {
+                        if atari.tia.audio[1].len() < 2 {
                             break;
                         }
 
-                        let mut s0 = atari.tia.audio_ch1[0];
-                        let s1 = atari.tia.audio_ch1[1];
+                        let mut s0 = atari.tia.audio[1][0];
+                        let s1 = atari.tia.audio[1][1];
 
                         while clocks_consumed < CLOCKS_PER_SAMPLE {
                             let clocks = s1.cycles.wrapping_sub(s0.cycles);
@@ -125,7 +125,7 @@ fn main() {
                             
                             if clocks >= clocks_needed {
                                 s0.cycles = s0.cycles.wrapping_add(clocks_needed);
-                                atari.tia.audio_ch1[0] = s0;
+                                atari.tia.audio[1][0] = s0;
                                 clocks_consumed = 0;
                                 sample += s0.value as f32 * clocks_needed as f32;
                                 samples.push((sample / CLOCKS_PER_SAMPLE as f32) as u8);
@@ -133,7 +133,7 @@ fn main() {
                             } else {
                                 clocks_consumed += clocks;
                                 sample += s0.value as f32 * clocks as f32;
-                                atari.tia.audio_ch1.pop_front();
+                                atari.tia.audio[1].pop_front();
                                 break;
                             }
                         }

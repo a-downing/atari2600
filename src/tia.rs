@@ -11,19 +11,17 @@ pub struct AudioSample {
 
 pub struct Tia {
     pub frame: [u8; (CLOCKS_PER_SCANLINE * NUM_SCANLINES) as usize],
-    pub audio_ch0: VecDeque<AudioSample>,
-    pub audio_ch1: VecDeque<AudioSample>,
+    pub audio: [VecDeque<AudioSample>; 2],
     draw: bool,
     scanline: u16,
     ctr: u16,
     color_clock: u16,
-    audio_div_ctr0: u8,
-    audio_div_ctr1: u8,
+    audio_div_ctr: [u8; 2],
     audio_div3_ctr: u8,
     audio_out: [bool; 2],
-    lfsr4: u8,
-    lfsr5: u8,
-    lfsr9: u16,
+    lfsr4: [u8; 2],
+    lfsr5: [u8; 2],
+    lfsr9: [u16; 2],
     vblank: u8,
     wsync: bool,
     vdelp1: u8,
@@ -50,31 +48,26 @@ pub struct Tia {
     nusiz0: u8,
     inpt5: u8,
     inpt4: u8,
-    audv1: u8,
-    audv0: u8,
-    audf1: u8,
-    audf0: u8,
-    audc1: u8,
-    audc0: u8,
+    audv: [u8; 2],
+    audf: [u8; 2],
+    audc: [u8; 2],
 }
 
 impl Tia {
     pub fn new() -> Self {
         Tia {
             frame: [0; (CLOCKS_PER_SCANLINE * NUM_SCANLINES) as usize],
-            audio_ch0: VecDeque::new(),
-            audio_ch1: VecDeque::new(),
+            audio: [VecDeque::new(), VecDeque::new()],
             draw: false,
             scanline: 0,
             ctr: 0,
             color_clock: 0,
-            audio_div_ctr0: 0,
-            audio_div_ctr1: 0,
+            audio_div_ctr: [0; 2],
             audio_div3_ctr: 0,
             audio_out: [false; 2],
-            lfsr4: 0xFF,
-            lfsr5: 0xFF,
-            lfsr9: 0xFFFF,
+            lfsr4: [0xFF; 2],
+            lfsr5: [0xFF; 2],
+            lfsr9: [0xFFFF; 2],
             vblank: 0,
             wsync: false,
             vdelp1: 0,
@@ -101,12 +94,9 @@ impl Tia {
             nusiz0: 0,
             inpt5: 0,
             inpt4: 0x80,
-            audv1: 0,
-            audv0: 0,
-            audf1: 0,
-            audf0: 0,
-            audc1: 0,
-            audc0: 0,
+            audv: [0; 2],
+            audf: [0; 2],
+            audc: [0; 2],
         }
     }
 
@@ -209,42 +199,46 @@ impl Tia {
         }
     }
 
-    pub fn audio_cycle(&mut self, chan: usize, audc: u8, audv: u8) -> u8 {
+    fn audio_sample(&self, chan: usize, polarity: bool) -> u8 {
+        if polarity { 128 + (self.audv[chan] << 3) } else { 128 - (self.audv[chan] << 3) }
+    }
+
+    pub fn audio_cycle(&mut self, chan: usize) -> u8 {
         // The actual LFSR is lfsr[5:1], lfsr[0] is the previous output
-        let lfsr5_prev_out = self.lfsr5 & 1 == 1;
-        self.lfsr5 = (((self.lfsr5 >> 1) | ((self.lfsr5 >> 3) ^ (self.lfsr5 >> 1) & 1) << 5)) & 0b111111;
-        let lfsr5_out = self.lfsr5 & 1 == 1;
+        let lfsr5_prev_out = self.lfsr5[chan] & 1 == 1;
+        self.lfsr5[chan] = (((self.lfsr5[chan] >> 1) | ((self.lfsr5[chan] >> 3) ^ (self.lfsr5[chan] >> 1) & 1) << 5)) & 0b111111;
+        let lfsr5_out = self.lfsr5[chan] & 1 == 1;
         
         // no need for previous output
-        let lfsr9_out = self.lfsr9 & 1 == 1;
-        self.lfsr9 = (((self.lfsr9 >> 1) | ((self.lfsr9 >> 4) ^ (self.lfsr9 >> 0) & 1) << 8)) & 0b111111111;
+        let lfsr9_out = self.lfsr9[chan] & 1 == 1;
+        self.lfsr9[chan] = (((self.lfsr9[chan] >> 1) | ((self.lfsr9[chan] >> 4) ^ (self.lfsr9[chan] >> 0) & 1) << 8)) & 0b111111111;
 
-        let modified_clock = match audc & 0b11 {
+        let modified_clock = match self.audc[chan] & 0b11 {
             0b00 => true,
             0b01 => true,
-            0b10 => self.lfsr5 >> 1 == 1, // happens every 31 cycles
+            0b10 => self.lfsr5[chan] >> 1 == 1, // happens every 31 cycles
             0b11 => lfsr5_out && !lfsr5_prev_out, // rising edge
             _ => unreachable!()
         };
 
-        let lfsr4_out = self.lfsr4 & 1 == 1;
+        let lfsr4_out = self.lfsr4[chan] & 1 == 1;
 
         if modified_clock {
-            self.lfsr4 = (((self.lfsr4 >> 1) | ((self.lfsr4 >> 1) ^ (self.lfsr4 >> 0) & 1) << 3)) & 0b1111;
+            self.lfsr4[chan] = (((self.lfsr4[chan] >> 1) | ((self.lfsr4[chan] >> 1) ^ (self.lfsr4[chan] >> 0) & 1) << 3)) & 0b1111;
             self.audio_out[chan] = !self.audio_out[chan];
         }
 
-        if audc & 0b1111 == 0 {
+        if self.audc[chan] & 0b1111 == 0 {
             return 128;
-        } else if audc & 0b1111 == 8 {
-            return if lfsr9_out { 128 + (audv << 3) } else { 128 - (audv << 3) };
+        } else if self.audc[chan] & 0b1111 == 8 {
+            return self.audio_sample(chan, lfsr9_out);
         }
 
-        match (audc >> 2) & 0b11 {
-            0b00 => if lfsr4_out { 128 + (audv << 3) } else { 128 - (audv << 3) },
-            0b01 => if self.audio_out[chan] { 128 + (audv << 3) } else { 128 - (audv << 3) },
-            0b10 => if lfsr5_out { 128 + (audv << 3) } else { 128 - (audv << 3) },
-            0b11 => if self.audio_out[chan] { 128 + (audv << 3) } else { 128 - (audv << 3) },
+        match (self.audc[chan] >> 2) & 0b11 {
+            0b00 => self.audio_sample(chan, lfsr4_out), //if lfsr4_out { 128 + (audv << 3) } else { 128 - (audv << 3) },
+            0b01 => self.audio_sample(chan, self.audio_out[chan]), //if self.audio_out[chan] { 128 + (audv << 3) } else { 128 - (audv << 3) },
+            0b10 => self.audio_sample(chan, lfsr5_out), //if lfsr5_out { 128 + (audv << 3) } else { 128 - (audv << 3) },
+            0b11 => self.audio_sample(chan, self.audio_out[chan]), //if self.audio_out[chan] { 128 + (audv << 3) } else { 128 - (audv << 3) },
             _ => unreachable!()
         }
     }
@@ -254,44 +248,26 @@ impl Tia {
             self.audio_div3_ctr = 0;
         }
 
-        if self.audc0 & 0b1100 == 0b1100 {
-            if self.audio_div3_ctr == 0 {
-                if self.audio_div_ctr0 == self.audf0 & 0b11111 {
-                    let value = self.audio_cycle(0, self.audc0, self.audv0);
-                    self.audio_ch0.push_back(AudioSample { value, cycles: self.ctr });
-                    self.audio_div_ctr0 = 0xFF;
+        for chan in 0..=1 {
+            if self.audc[chan] & 0b1100 == 0b1100 {
+                if self.audio_div3_ctr == 0 {
+                    if self.audio_div_ctr[chan] == self.audf[chan] & 0b11111 {
+                        let value = self.audio_cycle(chan);
+                        self.audio[chan].push_back(AudioSample { value, cycles: self.ctr });
+                        self.audio_div_ctr[chan] = 0xFF;
+                    }
+
+                    self.audio_div_ctr[chan] = self.audio_div_ctr[chan].wrapping_add(1);
+                }
+            } else {
+                if self.audio_div_ctr[chan] == self.audf[chan] & 0b11111 {
+                    let value = self.audio_cycle(chan);
+                    self.audio[chan].push_back(AudioSample { value, cycles: self.ctr });
+                    self.audio_div_ctr[chan] = 0xFF;
                 }
 
-                self.audio_div_ctr0 = self.audio_div_ctr0.wrapping_add(1);
+                self.audio_div_ctr[chan] = self.audio_div_ctr[chan].wrapping_add(1);
             }
-        } else {
-            if self.audio_div_ctr0 == self.audf0 & 0b11111 {
-                let value = self.audio_cycle(0, self.audc0, self.audv0);
-                self.audio_ch0.push_back(AudioSample { value, cycles: self.ctr });
-                self.audio_div_ctr0 = 0xFF;
-            }
-
-            self.audio_div_ctr0 = self.audio_div_ctr0.wrapping_add(1);
-        }
-
-        if self.audc1 & 0b1100 == 0b1100 {
-            if self.audio_div3_ctr == 0 {
-                if self.audio_div_ctr1 == self.audf1 & 0b11111 {
-                    let value = self.audio_cycle(1, self.audc1, self.audv1);
-                    self.audio_ch1.push_back(AudioSample { value, cycles: self.ctr });
-                    self.audio_div_ctr1 = 0xFF;
-                }
-
-                self.audio_div_ctr1 = self.audio_div_ctr1.wrapping_add(1);
-            }
-        } else {
-            if self.audio_div_ctr1 == self.audf1 & 0b11111 {
-                let value = self.audio_cycle(1, self.audc1, self.audv1);
-                self.audio_ch1.push_back(AudioSample { value, cycles: self.ctr });
-                self.audio_div_ctr1 = 0xFF;
-            }
-
-            self.audio_div_ctr1 = self.audio_div_ctr1.wrapping_add(1);
         }
 
         self.audio_div3_ctr += 1;
@@ -413,12 +389,12 @@ impl Tia {
                 self.grp0 = value;
                 self.grp1a = self.grp1;
                 }
-            0x001A => self.audv1 = value, //AUDV1 (audio volume 1)
-            0x0019 => self.audv0 = value, //AUDV0 (audio volume 0)
-            0x0018 => self.audf1 = value, //AUDF1 (audio frequency 1)
-            0x0017 => self.audf0 = value, //AUDF0 (audio frequency 0)
-            0x0016 => self.audc1 = value, //AUDC1 (audio control 1)
-            0x0015 => self.audc0 = value, //AUDC0 (audio control 0)
+            0x001A => self.audv[1] = value & 0xF, //AUDV1 (audio volume 1)
+            0x0019 => self.audv[0] = value & 0xF, //AUDV0 (audio volume 0)
+            0x0018 => self.audf[1] = value & 0x1F, //AUDF1 (audio frequency 1)
+            0x0017 => self.audf[0] = value & 0x1F, //AUDF0 (audio frequency 0)
+            0x0016 => self.audc[1] = value & 0xF, //AUDC1 (audio control 1)
+            0x0015 => self.audc[0] = value & 0xF, //AUDC0 (audio control 0)
             0x0014 => (), //RESBL (reset ball)
             0x0013 => (), //RESM1 (reset missile 1)
             0x0012 => (), //RESM0 (reset missile 0)
