@@ -20,7 +20,7 @@ fn main() {
     let audio_subsystem = sdl_context.audio().unwrap();
     const SCALE: u16 = 3;
 
-    let spec = AudioSpecDesired{ freq: Some(44100), channels: Some(2), samples: Some(256) };
+    let spec = AudioSpecDesired{ freq: Some(44100), channels: Some(2), samples: Some(512) };
     let audio_device = audio_subsystem.open_queue::<u8, _>(None, &spec).unwrap();
     audio_device.resume();
 

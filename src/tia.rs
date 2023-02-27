@@ -258,10 +258,6 @@ impl Tia {
     }
 
     pub fn audio_clockgen(&mut self) {
-        if self.audio_div3_ctr == 3 {
-            self.audio_div3_ctr = 0;
-        }
-
         for chan in 0..=1 {
             if self.audc[chan] & 0b1100 == 0b1100 {
                 if self.audio_div3_ctr == 0 {
@@ -285,6 +281,10 @@ impl Tia {
         }
 
         self.audio_div3_ctr += 1;
+
+        if self.audio_div3_ctr == 3 {
+            self.audio_div3_ctr = 0;
+        }
     }
 
     pub fn cycle(&mut self) {
