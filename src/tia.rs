@@ -23,10 +23,21 @@ pub struct Tia {
     lfsr9: [u16; 2],
     vblank: u8,
     wsync: bool,
+    vdelbl: u8,
     vdelp1: u8,
     vdelp0: u8,
+    hmbl: u8,
+    hmm1: u8,
+    hmm0: u8,
     hmp1: u8,
     hmp0: u8,
+    enabl: u8,
+    enabla: u8,
+    enam1: u8,
+    enam0: u8,
+    resbl: u16,
+    resm1: u16,
+    resm0: u16,
     resp0: u16,
     resp1: u16,
     grp0: u8,
@@ -68,10 +79,21 @@ impl Tia {
             lfsr9: [0xFFFF; 2],
             vblank: 0,
             wsync: false,
+            vdelbl: 0,
             vdelp1: 0,
             vdelp0: 0,
+            hmbl: 0,
+            hmm1: 0,
+            hmm0: 0,
             hmp1: 0,
             hmp0: 0,
+            enabl: 0,
+            enabla: 0,
+            enam1: 0,
+            enam0: 0,
+            resbl: 68,
+            resm1: 68,
+            resm0: 68,
             resp0: 68,
             resp1: 68,
             grp0: 0,
@@ -316,22 +338,53 @@ impl Tia {
         let x = self.color_clock - 68;
         let pf_index = x / 4;
 
-        let pixel = if pf_index < 20 {
+        let pf_pixel = if pf_index < 20 {
             self.playfield_pixel(pf_index, false)
         } else {
             let reflect = self.ctrlpf & 0x01 != 0;
             self.playfield_pixel(pf_index - 20, reflect)
         };
 
-        self.frame[index as usize] = if pixel { self.colupf } else { self.colubk };
+        let p0_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(true), self.resp0, self.refp0 & (1 << 3) != 0);
+        let p1_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(false), self.resp1, self.refp1 & (1 << 3) != 0);
 
-        if self.player_pixel_extra(self.color_clock, self.player_graphic(true), self.resp0, self.refp0 & (1 << 3) != 0) {
-            self.frame[index as usize] = self.colup0;
+        let mut color: Option<u8> = None;
+        let ball_size = (((self.ctrlpf >> 4) & 0b11) + 1) * 2;
+
+        if self.ctrlpf & (1 << 2) != 0 && pf_pixel {
+            color = Some(self.colupf);
+        } else {
+            if p0_pixel || p1_pixel {
+                if p1_pixel {
+                    color = Some(self.colup1);
+                }
+
+                if p0_pixel {
+                    color = Some(self.colup0);
+                }
+            } else  if pf_pixel {
+                color = Some(self.colupf);
+            }
         }
 
-        if self.player_pixel_extra(self.color_clock, self.player_graphic(false), self.resp1, self.refp1 & (1 << 3) != 0) {
-            self.frame[index as usize] = self.colup1;
+        let bl_enable = if self.vdelbl == 0 { self.enabl != 0 } else { self.enabla != 0 };
+        let bl_pixel = self.color_clock >= self.resbl && self.color_clock < self.resbl + ball_size as u16 && bl_enable;
+        let m0_pixel = self.color_clock >= self.resm0 && self.enam0 != 0;
+        let m1_pixel = self.color_clock >= self.resm1 && self.enam1 != 0;
+
+        if color.is_none() && m0_pixel {
+            color = Some(self.colup0);
         }
+
+        if color.is_none() && m1_pixel {
+            color = Some(self.colup1);
+        }
+
+        if color.is_none() && bl_pixel {
+            color = Some(self.colupf);
+        }
+
+        self.frame[index as usize] = color.unwrap_or(self.colubk);
 
         self.color_clock += 1;
 
@@ -375,49 +428,54 @@ impl Tia {
             0x002D..=0x003F => (), //???
             0x002C => (), //CXCLR (clear collision latches)
             0x002B => {   //HMCLR (clear horizontal motion registers)
+                self.hmbl = 0;
+                self.hmm0 = 0;
+                self.hmm1 = 0;
                 self.hmp0 = 0;
                 self.hmp1 = 0;
             }
             0x002A => {   //HMOVE (apply horizontal motion)
+                self.resbl = self.hmove(self.resbl, self.hmbl);
+                self.resm0 = self.hmove(self.resm0, self.hmm0);
+                self.resm1 = self.hmove(self.resm1, self.hmm1);
                 self.resp0 = self.hmove(self.resp0, self.hmp0);
                 self.resp1 = self.hmove(self.resp1, self.hmp1);
             }
             0x0029 => (), //RESMP1 (reset missile 1 to player 1)
             0x0028 => (), //RESMP0 (reset missile 0 to player 0)
-            0x0027 => (), //VDELBL (vertical delay ball)
+            0x0027 => self.vdelbl = value, //VDELBL (vertical delay ball)
             0x0026 => self.vdelp1 = value, //VDELP1 (vertical delay player 1)
             0x0025 => self.vdelp0 = value, //VDELP0 (vertical delay player 0)
-            0x0024 => (), //HMBL (horizontal motion ball)
-            0x0023 => (), //HMM1 (horizontal motion missile 1)
-            0x0022 => (), //HMM0 (horizontal motion missile 0)
+            0x0024 => self.hmbl = value, //HMBL (horizontal motion ball)
+            0x0023 => self.hmm1 = value, //HMM1 (horizontal motion missile 1)
+            0x0022 => self.hmm0 = value, //HMM0 (horizontal motion missile 0)
             0x0021 => self.hmp1 = value, //HMP1 (horizontal motion player 1)
             0x0020 => self.hmp0 = value, //HMP0 (horizontal motion player 0)
-            0x001F => (), //ENABL (enable ball graphics)
-            0x001E => (), //ENAM1 (enable missile 1 graphics)
-            0x001D => (), //ENAM0 (enable missile 0 graphics)
+            0x001F => self.enabl = value, //ENABL (enable ball graphics)
+            0x001E => self.enam1 = value, //ENAM1 (enable missile 1 graphics)
+            0x001D => self.enam0 = value, //ENAM0 (enable missile 0 graphics)
             0x001C => {   //GRP1 (graphics player 1)
                 self.grp1 = value;
                 self.grp0a = self.grp0;
+                self.enabla = self.enabl;
             }
             0x001B => {   //GRP0 (graphics player 0)
                 self.grp0 = value;
                 self.grp1a = self.grp1;
-                }
+            }
             0x001A => self.audv[1] = value & 0xF, //AUDV1 (audio volume 1)
             0x0019 => self.audv[0] = value & 0xF, //AUDV0 (audio volume 0)
             0x0018 => { //AUDF1 (audio frequency 1)
                 self.audf[1] = value & 0x1F;
-                //self.audio_div_ctr[1] = 0;
             }
             0x0017 => { //AUDF0 (audio frequency 0)
                 self.audf[0] = value & 0x1F;
-                //self.audio_div_ctr[0] = 0;
             }
             0x0016 => self.audc[1] = value & 0xF, //AUDC1 (audio control 1)
             0x0015 => self.audc[0] = value & 0xF, //AUDC0 (audio control 0)
-            0x0014 => (), //RESBL (reset ball)
-            0x0013 => (), //RESM1 (reset missile 1)
-            0x0012 => (), //RESM0 (reset missile 0)
+            0x0014 => self.resbl = self.color_clock.max(68) + 4, //RESBL (reset ball)
+            0x0013 => self.resm1 = self.color_clock.max(68) + 5, //RESM1 (reset missile 1)
+            0x0012 => self.resm0 = self.color_clock.max(68) + 5, //RESM0 (reset missile 0)
             0x0011 => self.resp1 = self.color_clock.max(68) + 5, //RESP1 (reset player 1)
             0x0010 => self.resp0 = self.color_clock.max(68) + 5, //RESP0 (reset player 0)
             0x000F => self.pf2 = value, //PF2 (playfield register byte 2)
