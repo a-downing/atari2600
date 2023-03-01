@@ -2,4 +2,4 @@
 
 This is not very close to finished
 
-![](https://github.com/a-downing/atari2600/raw/main/atari2600.jpg)
+![](https://github.com/a-downing/atari2600/raw/main/atari2600.png)
