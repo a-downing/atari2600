@@ -37,7 +37,9 @@ pub struct Riot {
     timer_irq_enable: bool,
     interrupt_flag: u8,
     porta: u8,
-    portb: u8
+    portb: u8,
+    ddca: u8,
+    ddcb: u8
 }
 
 impl Riot {
@@ -50,7 +52,9 @@ impl Riot {
             timer_irq_enable: false,
             interrupt_flag: 0,
             porta: 0xFF,
-            portb: 0
+            portb: 0,
+            ddca: 0,
+            ddcb: 0
         }
     }
 
@@ -119,9 +123,9 @@ impl Riot {
             0 => self.read_ram(addr),
             _ => match addr & (1 << 2) {
                 0 => match addr & 0x1287 {
-                    0x0283 => todo!(), //data-direction control for I/O register B
+                    0x0283 => self.ddcb, //data-direction control for I/O register B
                     0x0282 => self.portb, //I/O register B
-                    0x0281 => todo!(), //data-direction control for I/O register A
+                    0x0281 => self.ddca, //data-direction control for I/O register A
                     0x0280 => self.porta, //I/O register A
                     _ => panic!("Unknown RIOT read register: 0x{:04X}", addr)
                 }

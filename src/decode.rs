@@ -1,6 +1,6 @@
 use crate::{Instruction, Mnemonic, AddressMode, AccessType};
 
-pub const fn decode(opcode: u8) -> Instruction {
+pub fn decode(opcode: u8) -> Instruction {
     match opcode {
         0x00 => Instruction { name: Mnemonic::Brk, mode: AddressMode::Special },
         0x01 => Instruction { name: Mnemonic::Ora, mode: AddressMode::XIndexedIndirect(AccessType::Read) },
@@ -153,6 +153,6 @@ pub const fn decode(opcode: u8) -> Instruction {
         0xF9 => Instruction { name: Mnemonic::Sbc, mode: AddressMode::AbsoluteIndexedY(AccessType::Read) },
         0xFD => Instruction { name: Mnemonic::Sbc, mode: AddressMode::AbsoluteIndexedX(AccessType::Read) },
         0xFE => Instruction { name: Mnemonic::Inc, mode: AddressMode::AbsoluteIndexedX(AccessType::ReadModifyWrite) },
-        _ => panic!()
+        _ => panic!("Unknown instruction opcode: 0x{:02X}", opcode)
     }
 }

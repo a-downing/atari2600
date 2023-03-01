@@ -23,6 +23,8 @@ pub struct Tia {
     lfsr9: [u16; 2],
     vblank: u8,
     wsync: bool,
+    resmp1: u8,
+    resmp0: u8,
     vdelbl: u8,
     vdelp1: u8,
     vdelp0: u8,
@@ -61,6 +63,14 @@ pub struct Tia {
     audv: [u8; 2],
     audf: [u8; 2],
     audc: [u8; 2],
+    cxppmm: u8,
+    cxblpf: u8,
+    cxm1fb: u8,
+    cxm0fb: u8,
+    cxp1fb: u8,
+    cxp0fb: u8,
+    cxm1p: u8,
+    cxm0p: u8,
 }
 
 impl Tia {
@@ -79,6 +89,8 @@ impl Tia {
             lfsr9: [0xFFFF; 2],
             vblank: 0,
             wsync: false,
+            resmp1: 0,
+            resmp0: 0,
             vdelbl: 0,
             vdelp1: 0,
             vdelp0: 0,
@@ -117,6 +129,14 @@ impl Tia {
             audv: [0; 2],
             audf: [0; 2],
             audc: [0; 2],
+            cxppmm: 0,
+            cxblpf: 0,
+            cxm1fb: 0,
+            cxm0fb: 0,
+            cxp1fb: 0,
+            cxp0fb: 0,
+            cxm1p: 0,
+            cxm0p: 0,
         }
     }
 
@@ -369,8 +389,12 @@ impl Tia {
 
         let bl_enable = if self.vdelbl == 0 { self.enabl != 0 } else { self.enabla != 0 };
         let bl_pixel = self.color_clock >= self.resbl && self.color_clock < self.resbl + ball_size as u16 && bl_enable;
-        let m0_pixel = self.color_clock >= self.resm0 && self.enam0 != 0;
-        let m1_pixel = self.color_clock >= self.resm1 && self.enam1 != 0;
+        let m0_pixel = self.color_clock == self.resm0 && self.enam0 != 0 && self.resmp0 == 0;
+        let m1_pixel = self.color_clock == self.resm1 && self.enam1 != 0 && self.resmp1 == 0;
+
+        if color.is_none() && bl_pixel {
+            color = Some(self.colupf);
+        }
 
         if color.is_none() && m0_pixel {
             color = Some(self.colup0);
@@ -380,11 +404,67 @@ impl Tia {
             color = Some(self.colup1);
         }
 
-        if color.is_none() && bl_pixel {
-            color = Some(self.colupf);
+        self.frame[index as usize] = color.unwrap_or(self.colubk);
+
+        if p0_pixel && p1_pixel {
+            self.cxppmm |= 1 << 7;
         }
 
-        self.frame[index as usize] = color.unwrap_or(self.colubk);
+        if m0_pixel && m1_pixel {
+            self.cxppmm |= 1 << 6;
+        }
+
+        if bl_pixel && pf_pixel {
+            self.cxblpf |= 1 << 7;
+        }
+
+        if m1_pixel && pf_pixel {
+            self.cxm1fb |= 1 << 7;
+        }
+
+        if m1_pixel && bl_pixel {
+            self.cxm1fb |= 1 << 6;
+        }
+
+        if m0_pixel && pf_pixel {
+            self.cxm0fb |= 1 << 7;
+        }
+
+        if m0_pixel && bl_pixel {
+            self.cxm0fb |= 1 << 6;
+        }
+
+        if p1_pixel && pf_pixel {
+            self.cxp1fb |= 1 << 7;
+        }
+
+        if p1_pixel && bl_pixel {
+            self.cxp1fb |= 1 << 6;
+        }
+
+        if p0_pixel && pf_pixel {
+            self.cxp0fb |= 1 << 7;
+        }
+
+        if p0_pixel && bl_pixel {
+            self.cxp0fb |= 1 << 6;
+        }
+
+        if m1_pixel && p0_pixel {
+            self.cxm1p |= 1 << 7;
+        }
+
+        if m1_pixel && p1_pixel {
+            self.cxm1p |= 1 << 6;
+        }
+
+        if m0_pixel && p1_pixel {
+            self.cxm0p |= 1 << 7;
+        }
+
+        if m0_pixel && p0_pixel {
+            self.cxm0p |= 1 << 6;
+        }
 
         self.color_clock += 1;
 
@@ -395,20 +475,22 @@ impl Tia {
 
     pub fn read(&self, addr: u16) -> u8 {
         match addr & 0x108f {
+            0x000F => 0, // asteroids writes here ??
+            0x000E => 0, // asteroids writes here ??
             0x000D => self.inpt5, //INPT5 (input port 5, trigger 1)
             0x000C => self.inpt4, //INPT4 (input port 4, trigger 0)
             0x000B => 0, //INPT3 (input port 3, pot 3)
             0x000A => 0, //INPT2 (input port 2, pot 2)
             0x0009 => 0, //INPT1 (input port 1, pot 1)
             0x0008 => 0, //INPT0 (input port 0, pot 0)
-            0x0007 => 0, //CXPPMM (collision of players and missiles)
-            0x0006 => 0, //CXBLPF (collision of ball with playfield)
-            0x0005 => 0, //CXM1FB (collision of missile 1 with playfield-ball)
-            0x0004 => 0, //CXM0FB (collision of missile 0 with playfield-ball)
-            0x0003 => 0, //CXP1FB (collision of player 1 with playfield-ball)
-            0x0002 => 0, //CXP0FB (collision of player 0 with playfield-ball)
-            0x0001 => 0, //CXM1P (collision of missile 1 with players)
-            0x0000 => 0, //CXM0P (collision of missile 0 with players)
+            0x0007 => self.cxppmm, //CXPPMM (collision of players and missiles)
+            0x0006 => self.cxblpf, //CXBLPF (collision of ball with playfield)
+            0x0005 => self.cxm1fb, //CXM1FB (collision of missile 1 with playfield-ball)
+            0x0004 => self.cxm0fb, //CXM0FB (collision of missile 0 with playfield-ball)
+            0x0003 => self.cxp1fb, //CXP1FB (collision of player 1 with playfield-ball)
+            0x0002 => self.cxp0fb, //CXP0FB (collision of player 0 with playfield-ball)
+            0x0001 => self.cxm1p, //CXM1P (collision of missile 1 with players)
+            0x0000 => self.cxm0p, //CXM0P (collision of missile 0 with players)
             _ => panic!("Unknown TIA read register: 0x{:04X}", addr)
         }
     }
@@ -426,7 +508,16 @@ impl Tia {
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr & 0x10bf {
             0x002D..=0x003F => (), //???
-            0x002C => (), //CXCLR (clear collision latches)
+            0x002C => { //CXCLR (clear collision latches)
+                self.cxppmm = 0;
+                self.cxblpf = 0;
+                self.cxm1fb = 0;
+                self.cxm0fb = 0;
+                self.cxp1fb = 0;
+                self.cxp0fb = 0;
+                self.cxm1p = 0;
+                self.cxm0p = 0;
+            }
             0x002B => {   //HMCLR (clear horizontal motion registers)
                 self.hmbl = 0;
                 self.hmm0 = 0;
@@ -441,19 +532,25 @@ impl Tia {
                 self.resp0 = self.hmove(self.resp0, self.hmp0);
                 self.resp1 = self.hmove(self.resp1, self.hmp1);
             }
-            0x0029 => (), //RESMP1 (reset missile 1 to player 1)
-            0x0028 => (), //RESMP0 (reset missile 0 to player 0)
-            0x0027 => self.vdelbl = value, //VDELBL (vertical delay ball)
-            0x0026 => self.vdelp1 = value, //VDELP1 (vertical delay player 1)
-            0x0025 => self.vdelp0 = value, //VDELP0 (vertical delay player 0)
+            0x0029 => { //RESMP1 (reset missile 1 to player 1)
+                self.resmp1 = value & 2;
+                self.resm1 = self.resp1 + 4;
+             }
+            0x0028 => { //RESMP0 (reset missile 0 to player 0)
+                self.resmp0 = value & 2;
+                self.resm0 = self.resp0 + 4;
+             }
+            0x0027 => self.vdelbl = value & 1, //VDELBL (vertical delay ball)
+            0x0026 => self.vdelp1 = value & 1, //VDELP1 (vertical delay player 1)
+            0x0025 => self.vdelp0 = value & 1, //VDELP0 (vertical delay player 0)
             0x0024 => self.hmbl = value, //HMBL (horizontal motion ball)
             0x0023 => self.hmm1 = value, //HMM1 (horizontal motion missile 1)
             0x0022 => self.hmm0 = value, //HMM0 (horizontal motion missile 0)
             0x0021 => self.hmp1 = value, //HMP1 (horizontal motion player 1)
             0x0020 => self.hmp0 = value, //HMP0 (horizontal motion player 0)
-            0x001F => self.enabl = value, //ENABL (enable ball graphics)
-            0x001E => self.enam1 = value, //ENAM1 (enable missile 1 graphics)
-            0x001D => self.enam0 = value, //ENAM0 (enable missile 0 graphics)
+            0x001F => self.enabl = value & 2, //ENABL (enable ball graphics)
+            0x001E => self.enam1 = value & 2, //ENAM1 (enable missile 1 graphics)
+            0x001D => self.enam0 = value & 2, //ENAM0 (enable missile 0 graphics)
             0x001C => {   //GRP1 (graphics player 1)
                 self.grp1 = value;
                 self.grp0a = self.grp0;
@@ -473,7 +570,7 @@ impl Tia {
             }
             0x0016 => self.audc[1] = value & 0xF, //AUDC1 (audio control 1)
             0x0015 => self.audc[0] = value & 0xF, //AUDC0 (audio control 0)
-            0x0014 => self.resbl = self.color_clock.max(68) + 4, //RESBL (reset ball)
+            0x0014 => self.resbl = self.color_clock.max(68) + 3, //RESBL (reset ball)
             0x0013 => self.resm1 = self.color_clock.max(68) + 5, //RESM1 (reset missile 1)
             0x0012 => self.resm0 = self.color_clock.max(68) + 5, //RESM0 (reset missile 0)
             0x0011 => self.resp1 = self.color_clock.max(68) + 5, //RESP1 (reset player 1)

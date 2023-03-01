@@ -12,8 +12,8 @@ fn main() {
     let mut cpu = atari2600::MOS6502::new(atari);
     cpu.reset();
     cpu.get_bus().riot.switch_color(true);
-    cpu.get_bus().riot.switch_select(true);
-    cpu.get_bus().riot.switch_reset(true);
+    //cpu.get_bus().riot.switch_select(true);
+    //cpu.get_bus().riot.switch_reset(true);
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -59,6 +59,8 @@ fn main() {
                         Keycode::Down => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Down, true),
                         Keycode::Up => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Up, true),
                         Keycode::Space => cpu.get_bus().tia.input4(0x00),
+                        Keycode::S => cpu.get_bus().riot.switch_select(false),
+                        Keycode::R => cpu.get_bus().riot.switch_reset(false),
                         _ => ()
                     },
                     None => (),
@@ -70,6 +72,8 @@ fn main() {
                         Keycode::Down => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Down, false),
                         Keycode::Up => cpu.get_bus().riot.switch_joystick(player, JoystickDirection::Up, false),
                         Keycode::Space => cpu.get_bus().tia.input4(0x80),
+                        Keycode::S => cpu.get_bus().riot.switch_select(true),
+                        Keycode::R => cpu.get_bus().riot.switch_reset(true),
                         _ => ()
                     },
                     None => (),

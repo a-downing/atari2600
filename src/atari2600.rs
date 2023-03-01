@@ -71,7 +71,15 @@ impl AddressBus for Atari2600 {
         let chip = Atari2600::decode(addr);
 
         match chip {
-            Atari2600Chip::Cartridge => unimplemented!(),
+            Atari2600Chip::Cartridge => match addr & 0x1FFF {
+                0x1FF8 =>{
+                    self.bank_offset = 0;
+                }
+                0x1FF9 => {
+                    self.bank_offset = 4096;
+                }
+                _ => unimplemented!("write to ROM address: 0x{:04X}", addr)
+            }
             Atari2600Chip::RIOT => self.riot.write(addr, value),
             Atari2600Chip::TIA => self.tia.write(addr, value)
         }
