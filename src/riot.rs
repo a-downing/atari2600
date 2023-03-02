@@ -97,18 +97,15 @@ impl Riot {
     }
 
     pub fn cycle(&mut self) {
-        if self.timer_value == 0x00 {
-            self.interrupt_flag |= TIMER_FLAG;
-        }
+        if self.timer_cnt == self.timer_interval - 1 {
+            self.timer_value = self.timer_value.wrapping_sub(1);
 
-        if self.timer_cnt == self.timer_interval {
             if self.timer_value == 0xFF {
+                self.interrupt_flag |= TIMER_FLAG;
                 self.timer_interval = 1;
-                self.timer_cnt = 0;
             }
 
-            self.timer_value = self.timer_value.wrapping_sub(1);
-            self.timer_cnt = 0;
+            self.timer_cnt = 0xFFFF;
         }
 
         self.timer_cnt = self.timer_cnt.wrapping_add(1);
@@ -119,6 +116,8 @@ impl Riot {
     }
 
     pub fn read(&mut self, addr: u16) -> u8 {
+        //println!("RIOT read: 0x{:04X}", addr);
+
         match addr & (1 << 9) {
             0 => self.read_ram(addr),
             _ => match addr & (1 << 2) {
@@ -161,6 +160,8 @@ impl Riot {
     }
 
     pub fn write(&mut self, addr: u16, value: u8) {
+        //println!("RIOT write: 0x{:04X}", addr);
+
         match addr & (1 << 9) {
             0 => self.write_ram(addr, value),
             _ => match addr & (1 << 2) {
@@ -204,5 +205,6 @@ impl Riot {
         self.timer_value = value;
         self.timer_interval = interval;
         self.interrupt_flag &= !TIMER_FLAG;
+        self.timer_cnt = 0;
     }
 }

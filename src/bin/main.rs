@@ -47,6 +47,7 @@ fn main() {
     let mut frame_num = 0;
     let start_time = Instant::now();
     
+    //let mut f = std::fs::File::create("audio.raw").expect("Unable to create audio.raw");
 
     'main_loop: loop {
         for event in event_pump.poll_iter() {
@@ -133,7 +134,7 @@ fn main() {
                         thread::sleep(Duration::from_micros(1));
                     }
 
-                    //std::io::stdout().write_all(samples.as_ref()).unwrap();
+                    //f.write_all(samples.as_ref()).unwrap();
 
                     frame_num += 1;
                 }
