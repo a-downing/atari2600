@@ -1,4 +1,4 @@
-use std::{thread, time::{Duration, Instant}, io::Write};
+use std::{thread, time::{Duration, Instant}};
 
 use atari2600::{atari2600::{Atari2600}, tia, riot::{Player, JoystickDirection}, AudioConverter};
 use sdl2::{event::Event, pixels::{Color, PixelFormatEnum}, keyboard::Keycode, audio::AudioSpecDesired, render::TextureAccess};
@@ -12,8 +12,6 @@ fn main() {
     let mut cpu = atari2600::MOS6502::new(atari);
     cpu.reset();
     cpu.get_bus().riot.switch_color(true);
-    //cpu.get_bus().riot.switch_select(true);
-    //cpu.get_bus().riot.switch_reset(true);
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -47,8 +45,6 @@ fn main() {
     let mut frame_num = 0;
     let start_time = Instant::now();
     
-    //let mut f = std::fs::File::create("audio.raw").expect("Unable to create audio.raw");
-
     'main_loop: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -133,8 +129,6 @@ fn main() {
                     while audio_device.size() > 2048 {
                         thread::sleep(Duration::from_micros(1));
                     }
-
-                    //f.write_all(samples.as_ref()).unwrap();
 
                     frame_num += 1;
                 }

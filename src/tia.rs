@@ -192,8 +192,8 @@ impl Tia {
         false
     }
 
-    fn player_pixel_extra(&self, clock: u16, player: u8, pos: u16, reflect: bool) -> bool {
-        match self.nusiz0 & 0b111 {
+    fn player_pixel_extra(&self, clock: u16, player: u8, pos: u16, reflect: bool, nusiz: u8) -> bool {
+        match nusiz & 0b111 {
             0 => self.player_pixel(clock, player, pos, 1, reflect),
             1 => {
                 self.player_pixel(clock, player, pos, 1, reflect)
@@ -365,8 +365,8 @@ impl Tia {
             self.playfield_pixel(pf_index - 20, reflect)
         };
 
-        let p0_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(true), self.resp0, self.refp0 & (1 << 3) != 0);
-        let p1_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(false), self.resp1, self.refp1 & (1 << 3) != 0);
+        let p0_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(true), self.resp0, self.refp0 & (1 << 3) != 0, self.nusiz0);
+        let p1_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(false), self.resp1, self.refp1 & (1 << 3) != 0, self.nusiz1);
 
         let mut color: Option<u8> = None;
         let ball_size = (((self.ctrlpf >> 4) & 0b11) + 1) * 2;
