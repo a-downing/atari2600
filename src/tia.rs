@@ -24,7 +24,6 @@ pub struct Tia {
     vblank: u8,
     wsync: bool,
     resmp1: u8,
-    resmp0: u8,
     vdelbl: u8,
     vdelp1: u8,
     vdelp0: u8,
@@ -40,7 +39,6 @@ pub struct Tia {
     resbl: u16,
     resm1: u16,
     resm0: u16,
-    resp0: u16,
     resp1: u16,
     grp0: u8,
     grp0a: u8,
@@ -71,6 +69,9 @@ pub struct Tia {
     cxp0fb: u8,
     cxm1p: u8,
     cxm0p: u8,
+    resmp0: u8,
+    p0_cnt: u16,
+    p0_pixel: u8,
 }
 
 impl Tia {
@@ -90,7 +91,6 @@ impl Tia {
             vblank: 0,
             wsync: false,
             resmp1: 0,
-            resmp0: 0,
             vdelbl: 0,
             vdelp1: 0,
             vdelp0: 0,
@@ -106,7 +106,7 @@ impl Tia {
             resbl: 68,
             resm1: 68,
             resm0: 68,
-            resp0: 68,
+            p0_cnt: 68,
             resp1: 68,
             grp0: 0,
             grp0a: 0,
@@ -137,6 +137,8 @@ impl Tia {
             cxp0fb: 0,
             cxm1p: 0,
             cxm0p: 0,
+            resmp0: 0,
+            p0_pixel: 0
         }
     }
 
@@ -329,6 +331,18 @@ impl Tia {
         }
     }
 
+    fn player_pixel2(&self, grp: u8, pixel: u8, refp: u8) -> bool {
+        if pixel != 0 {
+            if refp & (1 << 3) == 0 {
+                grp & (1 << self.p0_pixel) != 0
+            } else {
+                grp & (1 << (7 - self.p0_pixel)) != 0
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn cycle(&mut self) {
         self.ctr = self.ctr.wrapping_add(1);
 
@@ -365,7 +379,33 @@ impl Tia {
             self.playfield_pixel(pf_index - 20, reflect)
         };
 
-        let p0_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(true), self.resp0, self.refp0 & (1 << 3) != 0, self.nusiz0);
+        let p0_pixel = if self.p0_pixel != 0 {
+            self.p0_pixel -= 1;
+            
+            let grp = if self.vdelp0 != 0 {
+                self.grp0a
+            } else {
+                self.grp0
+            };
+
+            self.player_pixel2(grp, self.p0_pixel, self.refp0)
+        } else {
+            false
+        };
+
+        self.p0_cnt += 1;
+
+        if self.p0_cnt == 160 + 5 {
+            self.p0_cnt = 5;
+            self.p0_pixel = 8;
+        } else if self.p0_cnt == 16 + 6 && self.nusiz0 & 0b101 == 1 {
+            self.p0_pixel = 8;
+        } else if self.p0_cnt == 32 + 6 && self.nusiz0 & 0b110 == 2 {
+            self.p0_pixel = 8;
+        } else if self.p0_cnt == 64 + 6 && self.nusiz0 & 0b101 == 4 {
+            self.p0_pixel = 8;
+        }
+
         let p1_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(false), self.resp1, self.refp1 & (1 << 3) != 0, self.nusiz1);
 
         let mut color: Option<u8> = None;
@@ -505,6 +545,16 @@ impl Tia {
         }
     }
 
+    fn hmove2(&self, resp: u16, hm: u8) -> u16 {
+        let hm = hm >> 4;
+
+        if hm & (1 << 3) == 0 {
+            resp.wrapping_add(hm as u16)
+        } else {
+            resp.wrapping_sub(!(0xFFF0 | hm as u16) + 1)
+        }
+    }
+
     pub fn write(&mut self, addr: u16, value: u8) {
         match addr & 0x10bf {
             0x002D..=0x003F => (), //???
@@ -529,7 +579,7 @@ impl Tia {
                 self.resbl = self.hmove(self.resbl, self.hmbl);
                 self.resm0 = self.hmove(self.resm0, self.hmm0);
                 self.resm1 = self.hmove(self.resm1, self.hmm1);
-                self.resp0 = self.hmove(self.resp0, self.hmp0);
+                self.p0_cnt = self.hmove2(self.p0_cnt, self.hmp0);
                 self.resp1 = self.hmove(self.resp1, self.hmp1);
             }
             0x0029 => { //RESMP1 (reset missile 1 to player 1)
@@ -538,7 +588,7 @@ impl Tia {
              }
             0x0028 => { //RESMP0 (reset missile 0 to player 0)
                 self.resmp0 = value & 2;
-                self.resm0 = self.resp0 + 4;
+                self.resm0 = self.p0_cnt + 4;
              }
             0x0027 => self.vdelbl = value & 1, //VDELBL (vertical delay ball)
             0x0026 => self.vdelp1 = value & 1, //VDELP1 (vertical delay player 1)
@@ -566,15 +616,15 @@ impl Tia {
                 self.audf[1] = value & 0x1F;
             }
             0x0017 => { //AUDF0 (audio frequency 0)
-                self.audf[0] = value & 0x1F;
+                self.audf[0] = value & 0x1F; 
             }
             0x0016 => self.audc[1] = value & 0xF, //AUDC1 (audio control 1)
             0x0015 => self.audc[0] = value & 0xF, //AUDC0 (audio control 0)
             0x0014 => self.resbl = self.color_clock.max(68) + 3, //RESBL (reset ball)
             0x0013 => self.resm1 = self.color_clock.max(68) + 5, //RESM1 (reset missile 1)
             0x0012 => self.resm0 = self.color_clock.max(68) + 5, //RESM0 (reset missile 0)
-            0x0011 => self.resp1 = self.color_clock.max(68) + 5, //RESP1 (reset player 1)
-            0x0010 => self.resp0 = self.color_clock.max(68) + 5, //RESP0 (reset player 0)
+            0x0011 => self.resp1 = self.color_clock.max(68) + 5, //self.color_clock.max(68) + 5, //RESP1 (reset player 1)
+            0x0010 => self.p0_cnt = 0, //RESP0 (reset player 0)
             0x000F => self.pf2 = value, //PF2 (playfield register byte 2)
             0x000E => self.pf1 = value, //PF1 (playfield register byte 1)
             0x000D => self.pf0 = value, //PF0 (playfield register byte 0)
