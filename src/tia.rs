@@ -39,7 +39,6 @@ pub struct Tia {
     resbl: u16,
     resm1: u16,
     resm0: u16,
-    resp1: u16,
     grp0: u8,
     grp0a: u8,
     grp1: u8,
@@ -70,8 +69,10 @@ pub struct Tia {
     cxm1p: u8,
     cxm0p: u8,
     resmp0: u8,
-    p0_cnt: u16,
-    p0_pixel: u8,
+    p0_cnt: Counter,
+    p0_pixel: GraphicsCounter,
+    p1_cnt: Counter,
+    p1_pixel: GraphicsCounter,
 }
 
 impl Tia {
@@ -106,8 +107,8 @@ impl Tia {
             resbl: 68,
             resm1: 68,
             resm0: 68,
-            p0_cnt: 68,
-            resp1: 68,
+            p0_cnt: Counter::new(0),
+            p1_cnt: Counter::new(0),
             grp0: 0,
             grp0a: 0,
             grp1: 0,
@@ -138,7 +139,8 @@ impl Tia {
             cxm1p: 0,
             cxm0p: 0,
             resmp0: 0,
-            p0_pixel: 0
+            p0_pixel: GraphicsCounter::new(),
+            p1_pixel: GraphicsCounter::new(),
         }
     }
 
@@ -332,14 +334,18 @@ impl Tia {
     }
 
     fn player_pixel2(&self, grp: u8, pixel: u8, refp: u8) -> bool {
-        if pixel != 0 {
-            if refp & (1 << 3) == 0 {
-                grp & (1 << self.p0_pixel) != 0
-            } else {
-                grp & (1 << (7 - self.p0_pixel)) != 0
-            }
+        if refp & (1 << 3) == 0 {
+            grp & (1 << pixel) != 0
         } else {
-            false
+            grp & (1 << (7 - pixel)) != 0
+        }
+    }
+
+    fn player_pixel_clock_div(nusiz: u8) -> u8 {
+        match nusiz & 0b111 {
+            0b111 => 4,
+            0b101 => 2,
+            _ => 1
         }
     }
 
@@ -379,34 +385,65 @@ impl Tia {
             self.playfield_pixel(pf_index - 20, reflect)
         };
 
-        let p0_pixel = if self.p0_pixel != 0 {
-            self.p0_pixel -= 1;
-            
+        self.p0_cnt.cycle();
+
+        if self.p0_cnt.cmp_delayed(160, 1) {
+            self.p0_pixel.reset();
+        } else if self.p0_cnt.cmp_delayed(16, 1) && self.nusiz0 & 0b101 == 1 {
+            self.p0_pixel.reset();
+        } else if self.p0_cnt.cmp_delayed(32, 1) && self.nusiz0 & 0b110 == 2 {
+            self.p0_pixel.reset();
+        } else if self.p0_cnt.cmp_delayed(64, 1) && self.nusiz0 & 0b101 == 4 {
+            self.p0_pixel.reset();
+        }
+
+        if self.p0_cnt.cmp(160) {
+            self.p0_cnt.set(0);
+        }
+
+        let p0_pixel_bit = self.p0_pixel.cycle(Self::player_pixel_clock_div(self.nusiz0));
+
+        let p0_pixel = if p0_pixel_bit != 0 {
             let grp = if self.vdelp0 != 0 {
                 self.grp0a
             } else {
                 self.grp0
             };
 
-            self.player_pixel2(grp, self.p0_pixel, self.refp0)
+            self.player_pixel2(grp, p0_pixel_bit - 1, self.refp0)
         } else {
             false
         };
 
-        self.p0_cnt += 1;
+        self.p1_cnt.cycle();
 
-        if self.p0_cnt == 160 + 5 {
-            self.p0_cnt = 5;
-            self.p0_pixel = 8;
-        } else if self.p0_cnt == 16 + 6 && self.nusiz0 & 0b101 == 1 {
-            self.p0_pixel = 8;
-        } else if self.p0_cnt == 32 + 6 && self.nusiz0 & 0b110 == 2 {
-            self.p0_pixel = 8;
-        } else if self.p0_cnt == 64 + 6 && self.nusiz0 & 0b101 == 4 {
-            self.p0_pixel = 8;
+        if self.p1_cnt.cmp_delayed(160, 1) {
+            self.p1_pixel.reset();
+        } else if self.p1_cnt.cmp_delayed(16, 1) && self.nusiz1 & 0b101 == 1 {
+            self.p1_pixel.reset()
+        } else if self.p1_cnt.cmp_delayed(32, 1) && self.nusiz1 & 0b110 == 2 {
+            self.p1_pixel.reset()
+        } else if self.p1_cnt.cmp_delayed(64, 1) && self.nusiz1 & 0b101 == 4 {
+            self.p1_pixel.reset()
         }
 
-        let p1_pixel = self.player_pixel_extra(self.color_clock, self.player_graphic(false), self.resp1, self.refp1 & (1 << 3) != 0, self.nusiz1);
+        if self.p1_cnt.cmp(160) {
+            self.p1_cnt.set(0);
+        }
+
+        let p1_pixel_bit = self.p1_pixel.cycle(Self::player_pixel_clock_div(self.nusiz1));
+
+        let p1_pixel = if p1_pixel_bit != 0 {
+            let grp = if self.vdelp1 != 0 {
+                self.grp1a
+            } else {
+                self.grp1
+            };
+
+            self.player_pixel2(grp, p1_pixel_bit - 1, self.refp1)
+        } else {
+            false
+        };
 
         let mut color: Option<u8> = None;
         let ball_size = (((self.ctrlpf >> 4) & 0b11) + 1) * 2;
@@ -549,9 +586,11 @@ impl Tia {
         let hm = hm >> 4;
 
         if hm & (1 << 3) == 0 {
-            resp.wrapping_add(hm as u16)
+            //resp.wrapping_add(hm as u16)
+            modular_add(resp, hm as u16, 160)
         } else {
-            resp.wrapping_sub(!(0xFFF0 | hm as u16) + 1)
+            //resp.wrapping_sub(!(0xFFF0 | hm as u16) + 1)
+            modular_sub(resp, !(0xFFF0 | hm as u16) + 1, 160)
         }
     }
 
@@ -579,16 +618,16 @@ impl Tia {
                 self.resbl = self.hmove(self.resbl, self.hmbl);
                 self.resm0 = self.hmove(self.resm0, self.hmm0);
                 self.resm1 = self.hmove(self.resm1, self.hmm1);
-                self.p0_cnt = self.hmove2(self.p0_cnt, self.hmp0);
-                self.resp1 = self.hmove(self.resp1, self.hmp1);
+                self.p0_cnt.set(self.hmove2(self.p0_cnt.value(), self.hmp0));
+                self.p1_cnt.set(self.hmove2(self.p1_cnt.value(), self.hmp1));
             }
             0x0029 => { //RESMP1 (reset missile 1 to player 1)
                 self.resmp1 = value & 2;
-                self.resm1 = self.resp1 + 4;
+                self.resm1 = 0; // TODO fix
              }
             0x0028 => { //RESMP0 (reset missile 0 to player 0)
                 self.resmp0 = value & 2;
-                self.resm0 = self.p0_cnt + 4;
+                self.resm0 = 0 // TODO fix;
              }
             0x0027 => self.vdelbl = value & 1, //VDELBL (vertical delay ball)
             0x0026 => self.vdelp1 = value & 1, //VDELP1 (vertical delay player 1)
@@ -623,8 +662,8 @@ impl Tia {
             0x0014 => self.resbl = self.color_clock.max(68) + 3, //RESBL (reset ball)
             0x0013 => self.resm1 = self.color_clock.max(68) + 5, //RESM1 (reset missile 1)
             0x0012 => self.resm0 = self.color_clock.max(68) + 5, //RESM0 (reset missile 0)
-            0x0011 => self.resp1 = self.color_clock.max(68) + 5, //self.color_clock.max(68) + 5, //RESP1 (reset player 1)
-            0x0010 => self.p0_cnt = 0, //RESP0 (reset player 0)
+            0x0011 => self.p1_cnt.set_delayed(0, 4), //RESP1 (reset player 1)
+            0x0010 => self.p0_cnt.set_delayed(0, 4), //RESP0 (reset player 0)
             0x000F => self.pf2 = value, //PF2 (playfield register byte 2)
             0x000E => self.pf1 = value, //PF1 (playfield register byte 1)
             0x000D => self.pf0 = value, //PF0 (playfield register byte 0)
@@ -648,5 +687,120 @@ impl Tia {
             }
             _ => panic!("Unknown TIA write register: 0x{:04X}", addr)
         }
+    }
+}
+
+struct Counter {
+    value: u16,
+    value_delayed: u16,
+    assign_cnt: u8,
+    cmp_cnt: u8,
+    matched: u16
+}
+
+impl Counter {
+    pub fn new(value: u16) -> Self {
+        Self { value, value_delayed: 0, assign_cnt: 0, cmp_cnt: 0, matched: 0 }
+    }
+
+    pub fn value(&self) -> u16 {
+        self.value
+    }
+
+    pub fn set(&mut self, value: u16) {
+        self.value = value;
+        self.value_delayed = value;
+    }
+
+    pub fn cmp(&mut self, value: u16) -> bool {
+        if self.value == value {
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn set_delayed(&mut self, value: u16, delay: u8) {
+        self.value_delayed = value;
+        self.assign_cnt = delay + 1;
+    }
+
+    pub fn cmp_delayed(&mut self, value: u16, delay: u8) -> bool {
+        if self.value == value {
+            self.matched = value;
+            self.cmp_cnt = delay;
+        }
+
+        if self.cmp_cnt != 0 {
+            self.cmp_cnt -= 1;
+        } else if self.matched == value {
+            self.matched = 0;
+            return true;
+        }
+
+        false
+    }
+
+    pub fn cycle(&mut self) {
+        self.value += 1;
+
+        if self.assign_cnt != 0 {
+            self.assign_cnt -= 1;
+
+            if self.assign_cnt == 0 {
+                self.value = self.value_delayed;
+            }
+        }
+    }
+}
+
+struct GraphicsCounter {
+    value: u8,
+    cnt: u8
+}
+
+impl GraphicsCounter {
+    pub fn new() -> Self {
+        Self { value: 0, cnt: 0 }
+    }
+
+    pub fn reset(&mut self) {
+        self.value = 8;
+        self.cnt = 0;
+    }
+
+    pub fn value(&self) -> u8 {
+        self.value
+    }
+
+    pub fn cycle(&mut self, clk_div: u8) -> u8 {
+        self.cnt += 1;
+        let value = self.value;
+
+        if self.cnt == clk_div {
+            self.cnt = 0;
+
+            if self.value > 0 {
+                self.value -= 1;
+            }
+        }
+
+        value
+    }
+}
+
+fn modular_add<T: std::ops::Add<Output = T> + std::ops::Sub<Output = T> + std::cmp::PartialOrd + From<u8> + Copy>(a: T, b: T, modulo: T) -> T {
+    if a + b > modulo - T::from(1) {
+        a + b - modulo
+    } else {
+        a + b
+    }
+}
+
+fn modular_sub<T: std::ops::Add<Output = T> + std::ops::Sub<Output = T> + std::cmp::PartialOrd + From<u8> + Copy>(a: T, b: T, modulo: T) -> T {
+    if b > a {
+        modulo - (b - a)
+    } else {
+        a - b
     }
 }
